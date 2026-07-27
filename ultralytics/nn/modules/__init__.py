@@ -95,6 +95,7 @@ from .head import (
     YOLOESegment26,
     v10Detect,
 )
+from .lasem import LASEM
 from .transformer import (
     AIFI,
     MLP,
@@ -119,6 +120,7 @@ __all__ = (
     "CIB",
     "DFL",
     "ELAN1",
+    "LASEM",
     "MLP",
     "OBB",
     "OBB26",

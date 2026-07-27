@@ -21,6 +21,7 @@ from ultralytics.nn.modules import (
     C3,
     C3TR,
     ELAN1,
+    LASEM,
     OBB,
     OBB26,
     PSA,
@@ -2064,7 +2065,7 @@ def parse_model(d, ch, verbose=True):
                     args.extend((True, 1.2))
             if m is C2fCIB:
                 legacy = False
-        elif m is AIFI:
+        elif m is AIFI or m is LASEM:  # channel-preserving modules: output channels equal input channels
             args = [ch[f], *args]
         elif m in frozenset({HGStem, HGBlock}):
             c1, cm, c2 = ch[f], args[0], args[1]
