@@ -95,6 +95,8 @@ from .head import (
     YOLOESegment26,
     v10Detect,
 )
+from .bifpn import DynamicBiFPNFusion
+from .dysample import DySample
 from .lasem import LASEM
 from .transformer import (
     AIFI,
@@ -157,6 +159,8 @@ __all__ = (
     "DeformableTransformerDecoderLayer",
     "Depth",
     "Detect",
+    "DySample",
+    "DynamicBiFPNFusion",
     "Focus",
     "GhostBottleneck",
     "GhostConv",

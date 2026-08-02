@@ -17,6 +17,7 @@ from ultralytics.utils.torch_utils import autocast
 
 from .metrics import bbox_iou, probiou
 from .tal import bbox2dist, rbox2dist
+from .wiou import WiseIoULossV3
 
 
 class VarifocalLoss(nn.Module):
@@ -109,12 +110,23 @@ class DFLoss(nn.Module):
 
 
 class BboxLoss(nn.Module):
-    """Criterion class for computing training losses for bounding boxes."""
+    """Criterion class for computing training losses for bounding boxes.
 
-    def __init__(self, reg_max: int = 16):
+    Attributes:
+        dfl_loss (DFLoss | None): Distribution focal loss module, or None if `reg_max <= 1`.
+        iou_type (str): Box regression loss to use, "ciou" (YOLO11 default) or "wiou_v3". WIoU v3 (Tong et al.,
+            2023, arXiv:2301.10051) is selected via the model YAML's top-level `iou_loss: wiou_v3` key (see
+            `v8DetectionLoss.__init__`) rather than a global default, so only opted-in models are affected -
+            see `ultralytics/utils/wiou.py` for the rationale (VisDrone small/ambiguous-box regression).
+        wiou (WiseIoULossV3 | None): WIoU v3 loss module, only constructed when `iou_type == "wiou_v3"`.
+    """
+
+    def __init__(self, reg_max: int = 16, iou_type: str = "ciou"):
         """Initialize the BboxLoss module with regularization maximum and DFL settings."""
         super().__init__()
         self.dfl_loss = DFLoss(reg_max) if reg_max > 1 else None
+        self.iou_type = iou_type.lower()
+        self.wiou = WiseIoULossV3() if self.iou_type == "wiou_v3" else None
 
     def forward(
         self,
@@ -130,8 +142,12 @@ class BboxLoss(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute IoU and DFL losses for bounding boxes."""
         weight = target_scores[fg_mask].sum(-1, keepdim=True)
-        iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
-        loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
+        if self.wiou is not None:
+            loss_terms = self.wiou(pred_bboxes[fg_mask], target_bboxes[fg_mask])
+            loss_iou = (loss_terms * weight).sum() / target_scores_sum
+        else:
+            iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
+            loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
 
         # DFL loss
         if self.dfl_loss:
@@ -369,7 +385,10 @@ class v8DetectionLoss:
             stride=self.stride.tolist(),
             topk2=tal_topk2,
         )
-        self.bbox_loss = BboxLoss(m.reg_max).to(device)
+        # Model YAML opts into WIoU v3 via a top-level `iou_loss: wiou_v3` key (see BboxLoss); absent/other
+        # values keep the stock CIoU loss, so this only affects models that explicitly request it.
+        iou_type = getattr(model, "yaml", {}).get("iou_loss", "ciou")
+        self.bbox_loss = BboxLoss(m.reg_max, iou_type=iou_type).to(device)
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
 
     def preprocess(self, targets: torch.Tensor, batch_size: int, scale_tensor: torch.Tensor) -> torch.Tensor:

@@ -51,6 +51,8 @@ from ultralytics.nn.modules import (
     Detect,
     DWConv,
     DWConvTranspose2d,
+    DynamicBiFPNFusion,
+    DySample,
     Focus,
     GhostBottleneck,
     GhostConv,
@@ -2065,7 +2067,7 @@ def parse_model(d, ch, verbose=True):
                     args.extend((True, 1.2))
             if m is C2fCIB:
                 legacy = False
-        elif m is AIFI or m is LASEM:  # channel-preserving modules: output channels equal input channels
+        elif m is AIFI or m is LASEM or m is DySample:  # channel-preserving: output channels equal input channels
             args = [ch[f], *args]
         elif m in frozenset({HGStem, HGBlock}):
             c1, cm, c2 = ch[f], args[0], args[1]
@@ -2079,6 +2081,9 @@ def parse_model(d, ch, verbose=True):
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
+        elif m is DynamicBiFPNFusion:  # weighted-concat fusion node: same channel arithmetic as Concat
+            c2 = sum(ch[x] for x in f)
+            args = [len(f), *args]  # tell the module how many per-branch fusion weights to allocate
         elif m in frozenset(
             {
                 Detect,
