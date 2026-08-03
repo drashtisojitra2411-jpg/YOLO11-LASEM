@@ -2,7 +2,10 @@
 """DySample: dynamic point-sampling upsampler.
 
 Paper: Liu, Lu, Fu, "Learning to Upsample by Learning to Sample," ICCV 2023 (arXiv:2308.15085).
-Official implementation: https://github.com/tiny-smart/dysample (ported here, "lp" / point-sampling style).
+Official implementation: https://github.com/tiny-smart/dysample ("lp" / point-sampling style, `dyscope=False`).
+This module is a direct, line-for-line port of the official `sample`/`forward_lp`/`_init_pos` methods; the
+only additions are the `enabled` ablation switch and the constructor guard restricting `style` to "lp" (the
+only style wired into this project's necks), documented below.
 
 Why this change: VisDrone objects frequently occupy fewer than 16x16 px. Nearest-neighbor upsampling
 (YOLO11's default neck upsampler) reconstructs high-resolution feature maps without regard for object
@@ -33,11 +36,11 @@ def _normal_init(module: nn.Conv2d, std: float = 0.001) -> None:
 
 
 class DySample(nn.Module):
-    """Dynamic point-sampling upsampler (DySample, ICCV 2023).
+    """Dynamic point-sampling upsampler (DySample, ICCV 2023, "lp" style).
 
     Learns a per-location sampling offset from the input feature map and reads the upsampled output via
     `grid_sample`, instead of fixed nearest-neighbor interpolation. Channel-preserving and single-input, so it
-    is a drop-in replacement for `nn.Upsample` in the parser.
+    is a drop-in replacement for `nn.Upsample` in the parser. Supports non-square feature maps (H != W).
 
     Attributes:
         scale (int): Upsampling factor.
@@ -53,6 +56,9 @@ class DySample(nn.Module):
         >>> x = torch.randn(1, 64, 20, 20)
         >>> m(x).shape
         torch.Size([1, 64, 40, 40])
+        >>> x_rect = torch.randn(1, 64, 12, 21)  # non-square input is supported
+        >>> m(x_rect).shape
+        torch.Size([1, 64, 24, 42])
     """
 
     def __init__(self, c1: int, scale: int = 2, style: str = "lp", groups: int = 4, enabled: bool = True) -> None:
@@ -87,7 +93,14 @@ class DySample(nn.Module):
         return grid.reshape(1, -1, 1, 1)
 
     def _sample(self, x: torch.Tensor, offset: torch.Tensor) -> torch.Tensor:
-        """Sample `x` at `offset`-perturbed locations and pixel-shuffle to the upsampled resolution."""
+        """Sample `x` at `offset`-perturbed locations and pixel-shuffle to the upsampled resolution.
+
+        Faithful port of the official `sample()` method. `H` and `W` are handled independently throughout
+        (grid construction, `pixel_shuffle`, `grid_sample`), so non-square feature maps work unmodified; the
+        `indexing="ij"` below reproduces the exact element order of the legacy (pre-1.10) `torch.meshgrid`
+        default that the official implementation relies on -- using `indexing="xy"` instead silently
+        transposes the (H, W) axes of `coords` relative to `offset` and breaks as soon as H != W.
+        """
         b, _, h, w = offset.shape
         offset = offset.view(b, 2, -1, h, w)
         coords_h = torch.arange(h, device=x.device) + 0.5
