@@ -121,40 +121,40 @@ class DySample(nn.Module):
     def sample(self, x: torch.Tensor, offset: torch.Tensor) -> torch.Tensor:
         """Sample x at offset-perturbed locations."""
 
-    B, _, H, W = offset.shape
-    offset = offset.view(B, 2, -1, H, W)
+        B, _, H, W = offset.shape
+        offset = offset.view(B, 2, -1, H, W)
 
-    coords_h = torch.arange(H, device=x.device, dtype=x.dtype) + 0.5
-    coords_w = torch.arange(W, device=x.device, dtype=x.dtype) + 0.5
+        coords_h = torch.arange(H, device=x.device, dtype=x.dtype) + 0.5
+        coords_w = torch.arange(W, device=x.device, dtype=x.dtype) + 0.5
 
-    yy, xx = torch.meshgrid(coords_h, coords_w, indexing="ij")
+        yy, xx = torch.meshgrid(coords_h, coords_w, indexing="ij")
 
-    coords = torch.stack((xx, yy), dim=0)
-    coords = coords.unsqueeze(1).unsqueeze(0)
+        coords = torch.stack((xx, yy), dim=0)
+        coords = coords.unsqueeze(1).unsqueeze(0)
 
-    normalizer = torch.tensor(
-        [W, H],
-        dtype=x.dtype,
-        device=x.device,
-    ).view(1, 2, 1, 1, 1)
+        normalizer = torch.tensor(
+            [W, H],
+            dtype=x.dtype,
+            device=x.device,
+        ).view(1, 2, 1, 1, 1)
 
-    coords = 2 * (coords + offset) / normalizer - 1
+        coords = 2 * (coords + offset) / normalizer - 1
 
-    coords = (
-        F.pixel_shuffle(coords.reshape(B, -1, H, W), self.scale)
-        .view(B, 2, -1, self.scale * H, self.scale * W)
-        .permute(0, 2, 3, 4, 1)
-        .contiguous()
-        .flatten(0, 1)
-    )
+        coords = (
+            F.pixel_shuffle(coords.reshape(B, -1, H, W), self.scale)
+            .view(B, 2, -1, self.scale * H, self.scale * W)
+            .permute(0, 2, 3, 4, 1)
+            .contiguous()
+            .flatten(0, 1)
+        )
 
-    return F.grid_sample(
-        x.reshape(B * self.groups, -1, H, W),
-        coords,
-        mode="bilinear",
-        align_corners=False,
-        padding_mode="border",
-    ).view(B, -1, self.scale * H, self.scale * W)
+        return F.grid_sample(
+            x.reshape(B * self.groups, -1, H, W),
+            coords,
+            mode="bilinear",
+            align_corners=False,
+            padding_mode="border",
+        ).view(B, -1, self.scale * H, self.scale * W)
 
     def forward_lp(self, x: torch.Tensor) -> torch.Tensor:
         """Official `forward_lp` ("lp" style, `dyscope=False` branch)."""
