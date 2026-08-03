@@ -92,7 +92,7 @@ class DySample(nn.Module):
         offset = offset.view(b, 2, -1, h, w)
         coords_h = torch.arange(h, device=x.device) + 0.5
         coords_w = torch.arange(w, device=x.device) + 0.5
-        coords = torch.stack(torch.meshgrid([coords_w, coords_h], indexing="xy"))
+        coords = torch.stack(torch.meshgrid([coords_w, coords_h], indexing="ij"))
         coords = coords.transpose(1, 2).unsqueeze(1).unsqueeze(0).type(x.dtype)
         normalizer = torch.tensor([w, h], dtype=x.dtype, device=x.device).view(1, 2, 1, 1, 1)
         coords = 2 * (coords + offset) / normalizer - 1
