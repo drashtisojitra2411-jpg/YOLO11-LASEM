@@ -37,9 +37,7 @@ from torch import nn
 __all__ = ("DySample",)
 
 
-def normal_init(
-    module: nn.Module, mean: float = 0, std: float = 1, bias: float = 0
-) -> None:
+def normal_init(module: nn.Module, mean: float = 0, std: float = 1, bias: float = 0) -> None:
     """Official `normal_init`: weight ~ N(mean, std), bias set to a constant."""
     if hasattr(module, "weight") and module.weight is not None:
         nn.init.normal_(module.weight, mean, std)
@@ -111,12 +109,7 @@ class DySample(nn.Module):
     def _init_pos(self) -> torch.Tensor:
         """Official `_init_pos`: fixed grid of initial (pre-offset) sample positions within each output pixel."""
         h = torch.arange((-self.scale + 1) / 2, (self.scale - 1) / 2 + 1) / self.scale
-        return (
-            torch.stack(torch.meshgrid([h, h]))
-            .transpose(1, 2)
-            .repeat(1, self.groups, 1)
-            .reshape(1, -1, 1, 1)
-        )
+        return torch.stack(torch.meshgrid([h, h])).transpose(1, 2).repeat(1, self.groups, 1).reshape(1, -1, 1, 1)
 
     def sample(self, x: torch.Tensor, offset: torch.Tensor) -> torch.Tensor:
         """Sample x at offset-perturbed locations."""
