@@ -2,21 +2,30 @@
 """DySample: dynamic point-sampling upsampler.
 
 Paper: Liu, Lu, Fu, "Learning to Upsample by Learning to Sample," ICCV 2023 (arXiv:2308.15085).
-Official implementation: https://github.com/tiny-smart/dysample ("lp" / point-sampling style, `dyscope=False`).
-This module is a direct, line-for-line port of the official `sample`/`forward_lp`/`_init_pos` methods; the
-only additions are the `enabled` ablation switch and the constructor guard restricting `style` to "lp" (the
-only style wired into this project's necks), documented below.
+Official implementation: https://github.com/tiny-smart/dysample
 
-Why this change: VisDrone objects frequently occupy fewer than 16x16 px. Nearest-neighbor upsampling
+`normal_init`, `DySample._init_pos`, `DySample.sample`, and `DySample.forward_lp` below are copied verbatim
+from the official repository's "lp"-style path (`dyscope=False`), including variable names (`B`, `H`, `W`),
+operation order, and the bare `torch.meshgrid(...)` calls with no `indexing=` kwarg. Do not "modernize" these
+by adding `indexing=`, reordering permute/view/transpose calls, or renaming `sample`/`forward_lp` -- the
+tensor layout flowing into `coords + offset` depends on this exact sequence matching the upstream source.
+`torch.meshgrid` without `indexing=` emits a harmless `UserWarning` on newer PyTorch; it still resolves to
+`indexing="ij"`, which is what the official code depends on.
+
+The only deviations from upstream are cosmetic/interface-level, not algorithmic:
+  - Constructor renamed to the project's call signature `DySample(c1, scale, style, groups, enabled)` in
+    place of upstream's `DySample(in_channels, scale, style, groups, dyscope)`.
+  - The `dyscope` (learned offset-scaling) option is not implemented; only plain "lp" is used by this
+    project's necks, so `style` other than "lp" raises `ValueError` at construction.
+  - `enabled` is a project-specific ablation switch (not in the paper/upstream): when False, `forward` falls
+    back to plain nearest-neighbor upsampling so DySample can be toggled off without editing YAML topology.
+
+Why this module exists: VisDrone objects frequently occupy fewer than 16x16 px. Nearest-neighbor upsampling
 (YOLO11's default neck upsampler) reconstructs high-resolution feature maps without regard for object
 content, which blurs the boundaries of exactly the small objects this architecture targets. DySample
 predicts a content-aware sampling offset per output location instead, at a fraction of the FLOPs/params
 of kernel-based dynamic upsamplers (CARAFE, FADE, SAPA), so it is used to replace every top-down
 `nn.Upsample` in the Dynamic BiFPN neck (see yolo11_p2_bifpn_lasem.yaml).
-
-Expected effect on VisDrone small-object detection: sharper, content-aligned P2-P4 feature maps after
-upsampling should reduce localization error for small objects versus nearest-neighbor upsampling, at a
-small constant parameter/FLOPs cost (an offset-prediction 1x1 conv) that does not scale with resolution.
 """
 
 from __future__ import annotations
@@ -28,22 +37,24 @@ from torch import nn
 __all__ = ("DySample",)
 
 
-def _normal_init(module: nn.Conv2d, std: float = 0.001) -> None:
-    """Initialize a conv layer's weight from N(0, std) and its bias to zero."""
-    nn.init.normal_(module.weight, mean=0.0, std=std)
-    if module.bias is not None:
-        nn.init.constant_(module.bias, 0)
+def normal_init(module: nn.Module, mean: float = 0, std: float = 1, bias: float = 0) -> None:
+    """Official `normal_init`: weight ~ N(mean, std), bias set to a constant."""
+    if hasattr(module, "weight") and module.weight is not None:
+        nn.init.normal_(module.weight, mean, std)
+    if hasattr(module, "bias") and module.bias is not None:
+        nn.init.constant_(module.bias, bias)
 
 
 class DySample(nn.Module):
-    """Dynamic point-sampling upsampler (DySample, ICCV 2023, "lp" style).
+    """Dynamic point-sampling upsampler (DySample, ICCV 2023, "lp" style, `dyscope=False`).
 
     Learns a per-location sampling offset from the input feature map and reads the upsampled output via
     `grid_sample`, instead of fixed nearest-neighbor interpolation. Channel-preserving and single-input, so it
-    is a drop-in replacement for `nn.Upsample` in the parser. Supports non-square feature maps (H != W).
+    is a drop-in replacement for `nn.Upsample` in the parser.
 
     Attributes:
         scale (int): Upsampling factor.
+        style (str): Offset-generation style; always "lp" (enforced in `__init__`).
         groups (int): Number of offset groups (channels are split into this many independently-offset groups).
         enabled (bool): Ablation switch; when False, `forward` falls back to plain nearest-neighbor upsampling
             so the DySample contribution can be toggled off without editing the YAML topology.
@@ -65,12 +76,12 @@ class DySample(nn.Module):
         """Initialize DySample.
 
         Args:
-            c1 (int): Number of input (and output) channels.
+            c1 (int): Number of input (and output) channels (upstream: `in_channels`).
             scale (int): Upsampling factor.
             style (str): Offset-generation style; only "lp" (point-based, the paper's lightweight default) is
                 implemented since it is the variant used for detection necks.
             groups (int): Number of independently-offset channel groups; must divide `c1`.
-            enabled (bool): Ablation switch, see class docstring.
+            enabled (bool): Project-specific ablation switch, see class docstring.
         """
         super().__init__()
         if style != "lp":
@@ -78,47 +89,52 @@ class DySample(nn.Module):
         if c1 % groups != 0:
             raise ValueError(f"DySample: c1={c1} must be divisible by groups={groups}")
         self.scale = scale
+        self.style = style
         self.groups = groups
         self.enabled = enabled
 
         if self.enabled:
-            self.offset = nn.Conv2d(c1, 2 * groups * scale * scale, kernel_size=1)
-            _normal_init(self.offset, std=0.001)
+            out_channels = 2 * groups * scale**2
+            self.offset = nn.Conv2d(c1, out_channels, 1)
+            normal_init(self.offset, std=0.001)
             self.register_buffer("init_pos", self._init_pos(), persistent=False)
 
     def _init_pos(self) -> torch.Tensor:
-        """Build the fixed grid of initial (pre-offset) sample positions within each output pixel."""
+        """Official `_init_pos`: fixed grid of initial (pre-offset) sample positions within each output pixel."""
         h = torch.arange((-self.scale + 1) / 2, (self.scale - 1) / 2 + 1) / self.scale
-        grid = torch.stack(torch.meshgrid([h, h], indexing="ij")).transpose(1, 2).repeat(1, self.groups, 1)
-        return grid.reshape(1, -1, 1, 1)
+        return torch.stack(torch.meshgrid([h, h])).transpose(1, 2).repeat(1, self.groups, 1).reshape(1, -1, 1, 1)
 
-    def _sample(self, x: torch.Tensor, offset: torch.Tensor) -> torch.Tensor:
-        """Sample `x` at `offset`-perturbed locations and pixel-shuffle to the upsampled resolution.
-
-        Faithful port of the official `sample()` method. `H` and `W` are handled independently throughout
-        (grid construction, `pixel_shuffle`, `grid_sample`), so non-square feature maps work unmodified; the
-        `indexing="ij"` below reproduces the exact element order of the legacy (pre-1.10) `torch.meshgrid`
-        default that the official implementation relies on -- using `indexing="xy"` instead silently
-        transposes the (H, W) axes of `coords` relative to `offset` and breaks as soon as H != W.
-        """
-        b, _, h, w = offset.shape
-        offset = offset.view(b, 2, -1, h, w)
-        coords_h = torch.arange(h, device=x.device) + 0.5
-        coords_w = torch.arange(w, device=x.device) + 0.5
-        coords = torch.stack(torch.meshgrid([coords_w, coords_h], indexing="ij"))
-        coords = coords.transpose(1, 2).unsqueeze(1).unsqueeze(0).type(x.dtype)
-        normalizer = torch.tensor([w, h], dtype=x.dtype, device=x.device).view(1, 2, 1, 1, 1)
+    def sample(self, x: torch.Tensor, offset: torch.Tensor) -> torch.Tensor:
+        """Official `sample`: sample `x` at `offset`-perturbed locations, pixel-shuffled to the target size."""
+        B, _, H, W = offset.shape
+        offset = offset.view(B, 2, -1, H, W)
+        coords_h = torch.arange(H) + 0.5
+        coords_w = torch.arange(W) + 0.5
+        coords = (
+            torch.stack(torch.meshgrid([coords_w, coords_h]))
+            .transpose(1, 2)
+            .unsqueeze(1)
+            .unsqueeze(0)
+            .type(x.dtype)
+            .to(x.device)
+        )
+        normalizer = torch.tensor([W, H], dtype=x.dtype, device=x.device).view(1, 2, 1, 1, 1)
         coords = 2 * (coords + offset) / normalizer - 1
         coords = (
-            F.pixel_shuffle(coords.reshape(b, -1, h, w), self.scale)
-            .view(b, 2, -1, self.scale * h, self.scale * w)
+            F.pixel_shuffle(coords.view(B, -1, H, W), self.scale)
+            .view(B, 2, -1, self.scale * H, self.scale * W)
             .permute(0, 2, 3, 4, 1)
             .contiguous()
             .flatten(0, 1)
         )
         return F.grid_sample(
-            x.reshape(b * self.groups, -1, h, w), coords, mode="bilinear", align_corners=False, padding_mode="border"
-        ).view(b, -1, self.scale * h, self.scale * w)
+            x.reshape(B * self.groups, -1, H, W), coords, mode="bilinear", align_corners=False, padding_mode="border"
+        ).view(B, -1, self.scale * H, self.scale * W)
+
+    def forward_lp(self, x: torch.Tensor) -> torch.Tensor:
+        """Official `forward_lp` ("lp" style, `dyscope=False` branch)."""
+        offset = self.offset(x) * 0.25 + self.init_pos
+        return self.sample(x, offset)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Upsample `x` by `scale` via learned point sampling (or nearest-neighbor when `enabled=False`).
@@ -131,5 +147,4 @@ class DySample(nn.Module):
         """
         if not self.enabled:
             return F.interpolate(x, scale_factor=self.scale, mode="nearest")
-        offset = self.offset(x) * 0.25 + self.init_pos
-        return self._sample(x, offset)
+        return self.forward_lp(x)
