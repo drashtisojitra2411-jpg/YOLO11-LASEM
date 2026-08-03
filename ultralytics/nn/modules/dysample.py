@@ -37,7 +37,9 @@ from torch import nn
 __all__ = ("DySample",)
 
 
-def normal_init(module: nn.Module, mean: float = 0, std: float = 1, bias: float = 0) -> None:
+def normal_init(
+    module: nn.Module, mean: float = 0, std: float = 1, bias: float = 0
+) -> None:
     """Official `normal_init`: weight ~ N(mean, std), bias set to a constant."""
     if hasattr(module, "weight") and module.weight is not None:
         nn.init.normal_(module.weight, mean, std)
@@ -72,7 +74,14 @@ class DySample(nn.Module):
         torch.Size([1, 64, 24, 42])
     """
 
-    def __init__(self, c1: int, scale: int = 2, style: str = "lp", groups: int = 4, enabled: bool = True) -> None:
+    def __init__(
+        self,
+        c1: int,
+        scale: int = 2,
+        style: str = "lp",
+        groups: int = 4,
+        enabled: bool = True,
+    ) -> None:
         """Initialize DySample.
 
         Args:
@@ -102,34 +111,50 @@ class DySample(nn.Module):
     def _init_pos(self) -> torch.Tensor:
         """Official `_init_pos`: fixed grid of initial (pre-offset) sample positions within each output pixel."""
         h = torch.arange((-self.scale + 1) / 2, (self.scale - 1) / 2 + 1) / self.scale
-        return torch.stack(torch.meshgrid([h, h])).transpose(1, 2).repeat(1, self.groups, 1).reshape(1, -1, 1, 1)
+        return (
+            torch.stack(torch.meshgrid([h, h]))
+            .transpose(1, 2)
+            .repeat(1, self.groups, 1)
+            .reshape(1, -1, 1, 1)
+        )
 
     def sample(self, x: torch.Tensor, offset: torch.Tensor) -> torch.Tensor:
-        """Official `sample`: sample `x` at `offset`-perturbed locations, pixel-shuffled to the target size."""
-        B, _, H, W = offset.shape
-        offset = offset.view(B, 2, -1, H, W)
-        coords_h = torch.arange(H) + 0.5
-        coords_w = torch.arange(W) + 0.5
-        coords = (
-            torch.stack(torch.meshgrid([coords_w, coords_h]))
-            .transpose(1, 2)
-            .unsqueeze(1)
-            .unsqueeze(0)
-            .type(x.dtype)
-            .to(x.device)
-        )
-        normalizer = torch.tensor([W, H], dtype=x.dtype, device=x.device).view(1, 2, 1, 1, 1)
-        coords = 2 * (coords + offset) / normalizer - 1
-        coords = (
-            F.pixel_shuffle(coords.view(B, -1, H, W), self.scale)
-            .view(B, 2, -1, self.scale * H, self.scale * W)
-            .permute(0, 2, 3, 4, 1)
-            .contiguous()
-            .flatten(0, 1)
-        )
-        return F.grid_sample(
-            x.reshape(B * self.groups, -1, H, W), coords, mode="bilinear", align_corners=False, padding_mode="border"
-        ).view(B, -1, self.scale * H, self.scale * W)
+        """Sample x at offset-perturbed locations."""
+
+    B, _, H, W = offset.shape
+    offset = offset.view(B, 2, -1, H, W)
+
+    coords_h = torch.arange(H, device=x.device, dtype=x.dtype) + 0.5
+    coords_w = torch.arange(W, device=x.device, dtype=x.dtype) + 0.5
+
+    yy, xx = torch.meshgrid(coords_h, coords_w, indexing="ij")
+
+    coords = torch.stack((xx, yy), dim=0)
+    coords = coords.unsqueeze(1).unsqueeze(0)
+
+    normalizer = torch.tensor(
+        [W, H],
+        dtype=x.dtype,
+        device=x.device,
+    ).view(1, 2, 1, 1, 1)
+
+    coords = 2 * (coords + offset) / normalizer - 1
+
+    coords = (
+        F.pixel_shuffle(coords.reshape(B, -1, H, W), self.scale)
+        .view(B, 2, -1, self.scale * H, self.scale * W)
+        .permute(0, 2, 3, 4, 1)
+        .contiguous()
+        .flatten(0, 1)
+    )
+
+    return F.grid_sample(
+        x.reshape(B * self.groups, -1, H, W),
+        coords,
+        mode="bilinear",
+        align_corners=False,
+        padding_mode="border",
+    ).view(B, -1, self.scale * H, self.scale * W)
 
     def forward_lp(self, x: torch.Tensor) -> torch.Tensor:
         """Official `forward_lp` ("lp" style, `dyscope=False` branch)."""
