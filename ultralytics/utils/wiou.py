@@ -33,18 +33,18 @@ __all__ = ("WiseIoULossV3",)
 class WiseIoULossV3(nn.Module):
     """Wise-IoU v3: distance-attention IoU loss with a dynamic non-monotonic focusing mechanism.
 
-    Maintains a running mean of the (detached) IoU loss across training batches to compute each box's outlier
-    degree, per the paper's Eq. 9-11. Only meaningful during training (the running mean is only updated when
-    `self.training` is True); at eval time it is used as a fixed reference.
+    Maintains a running mean of the (detached) IoU loss across training batches to compute each box's outlier degree,
+    per the paper's Eq. 9-11. Only meaningful during training (the running mean is only updated when `self.training` is
+    True); at eval time it is used as a fixed reference.
 
     Attributes:
         alpha (float): Non-monotonic focusing shape parameter (paper default 1.9).
-        delta (float): Non-monotonic focusing center parameter (paper default 3.0); beta == delta gives the
-            maximum focusing coefficient r == 1.
+        delta (float): Non-monotonic focusing center parameter (paper default 3.0); beta == delta gives the maximum
+            focusing coefficient r == 1.
         momentum (float): Exponential-moving-average momentum for the running IoU-loss mean.
         eps (float): Small constant avoiding division by zero.
-        iou_mean (torch.Tensor): Running mean of the detached IoU loss (buffer, persists across batches but
-            not across checkpoints by design - it re-warms quickly and need not be restored exactly).
+        iou_mean (torch.Tensor): Running mean of the detached IoU loss (buffer, persists across batches but not across
+            checkpoints by design - it re-warms quickly and need not be restored exactly).
 
     Examples:
         >>> import torch
