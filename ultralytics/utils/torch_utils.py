@@ -712,9 +712,10 @@ class ModelEMA:
             for k, v in self.ema.state_dict().items():
                 if v.dtype.is_floating_point:  # true for FP16 and FP32
                     ema_v.append(v)
-                    model_v.append(msd[k])
+                    model_v.append(msd[k].to(dtype=v.dtype))
             if ema_v and TORCH_2_0 and (TORCH_2_4 or ema_v[0].device.type != "mps"):  # one kernel launch per op
-                torch._foreach_lerp_(ema_v, model_v, 1 - d)
+                for v, m in zip(ema_v, model_v):
+                    v.mul_(d).add_(m, alpha=1 - d)
             else:  # _foreach_lerp_ needs torch>=2.0 and, on MPS, torch>=2.4
                 for v, m in zip(ema_v, model_v):
                     v.mul_(d).add_(m, alpha=1 - d)
