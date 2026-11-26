@@ -48,16 +48,16 @@ def normal_init(module: nn.Module, mean: float = 0, std: float = 1, bias: float 
 class DySample(nn.Module):
     """Dynamic point-sampling upsampler (DySample, ICCV 2023, "lp" style, `dyscope=False`).
 
-    Learns a per-location sampling offset from the input feature map and reads the upsampled output via
-    `grid_sample`, instead of fixed nearest-neighbor interpolation. Channel-preserving and single-input, so it
-    is a drop-in replacement for `nn.Upsample` in the parser.
+    Learns a per-location sampling offset from the input feature map and reads the upsampled output via `grid_sample`,
+    instead of fixed nearest-neighbor interpolation. Channel-preserving and single-input, so it is a drop-in replacement
+    for `nn.Upsample` in the parser.
 
     Attributes:
         scale (int): Upsampling factor.
         style (str): Offset-generation style; always "lp" (enforced in `__init__`).
         groups (int): Number of offset groups (channels are split into this many independently-offset groups).
-        enabled (bool): Ablation switch; when False, `forward` falls back to plain nearest-neighbor upsampling
-            so the DySample contribution can be toggled off without editing the YAML topology.
+        enabled (bool): Ablation switch; when False, `forward` falls back to plain nearest-neighbor upsampling so the
+            DySample contribution can be toggled off without editing the YAML topology.
         offset (nn.Conv2d): Predicts the (x, y) sampling offset for each of the `groups` x `scale**2` samples.
 
     Examples:
@@ -113,7 +113,6 @@ class DySample(nn.Module):
 
     def sample(self, x: torch.Tensor, offset: torch.Tensor) -> torch.Tensor:
         """Sample x at offset-perturbed locations."""
-
         B, _, H, W = offset.shape
         offset = offset.view(B, 2, -1, H, W)
 

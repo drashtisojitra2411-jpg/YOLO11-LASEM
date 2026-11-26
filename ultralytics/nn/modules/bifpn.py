@@ -37,17 +37,17 @@ __all__ = ("DynamicBiFPNFusion",)
 class DynamicBiFPNFusion(nn.Module):
     """Multi-input dynamic BiFPN weighted-fusion node.
 
-    Scales each of `n` same-resolution input feature maps by a learned, per-branch weight before
-    concatenating them along the channel dimension. The weight is the product of a static, EfficientDet-style
-    fast-normalized-fusion weight and (optionally) a per-sample content-adaptive gate, then re-normalized to
-    sum to 1 across branches. Output channel count equals the sum of input channel counts (identical to a
-    plain `Concat`), so it needs the same parser channel-arithmetic handling as `Concat`.
+    Scales each of `n` same-resolution input feature maps by a learned, per-branch weight before concatenating them
+    along the channel dimension. The weight is the product of a static, EfficientDet-style fast-normalized-fusion weight
+    and (optionally) a per-sample content-adaptive gate, then re-normalized to sum to 1 across branches. Output channel
+    count equals the sum of input channel counts (identical to a plain `Concat`), so it needs the same parser
+    channel-arithmetic handling as `Concat`.
 
     Attributes:
         d (int): Concatenation dimension (channel axis).
         weighted (bool): Ablation switch for the static BiFPN weighting; when False, behaves as plain `Concat`.
-        dynamic (bool): Ablation switch for the adaptive gate; when False, uses static weights only (vanilla
-            BiFPN fast normalized fusion, no "dynamic" component).
+        dynamic (bool): Ablation switch for the adaptive gate; when False, uses static weights only (vanilla BiFPN fast
+            normalized fusion, no "dynamic" component).
         w (nn.Parameter): One learnable static weight per input branch.
         alpha (nn.Parameter): Per-branch gate scale (only present if `dynamic=True`).
         beta (nn.Parameter): Per-branch gate bias (only present if `dynamic=True`).
