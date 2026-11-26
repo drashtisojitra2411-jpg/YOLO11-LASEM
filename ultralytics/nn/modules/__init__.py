@@ -17,6 +17,7 @@ Examples:
     >>> subprocess.run(f"onnxslim {f} {f} && open {f}", shell=True, check=True)  # pip install onnxslim
 """
 
+from .bifpn import DynamicBiFPNFusion
 from .block import (
     C1,
     C2,
@@ -76,6 +77,7 @@ from .conv import (
     RepConv,
     SpatialAttention,
 )
+from .dysample import DySample
 from .head import (
     OBB,
     OBB26,
@@ -95,8 +97,6 @@ from .head import (
     YOLOESegment26,
     v10Detect,
 )
-from .bifpn import DynamicBiFPNFusion
-from .dysample import DySample
 from .lasem import LASEM
 from .transformer import (
     AIFI,

@@ -114,10 +114,10 @@ class BboxLoss(nn.Module):
 
     Attributes:
         dfl_loss (DFLoss | None): Distribution focal loss module, or None if `reg_max <= 1`.
-        iou_type (str): Box regression loss to use, "ciou" (YOLO11 default) or "wiou_v3". WIoU v3 (Tong et al.,
-            2023, arXiv:2301.10051) is selected via the model YAML's top-level `iou_loss: wiou_v3` key (see
-            `v8DetectionLoss.__init__`) rather than a global default, so only opted-in models are affected -
-            see `ultralytics/utils/wiou.py` for the rationale (VisDrone small/ambiguous-box regression).
+        iou_type (str): Box regression loss to use, "ciou" (YOLO11 default) or "wiou_v3". WIoU v3 (Tong et al., 2023,
+            arXiv:2301.10051) is selected via the model YAML's top-level `iou_loss: wiou_v3` key (see
+            `v8DetectionLoss.__init__`) rather than a global default, so only opted-in models are affected - see
+            `ultralytics/utils/wiou.py` for the rationale (VisDrone small/ambiguous-box regression).
         wiou (WiseIoULossV3 | None): WIoU v3 loss module, only constructed when `iou_type == "wiou_v3"`.
     """
 
